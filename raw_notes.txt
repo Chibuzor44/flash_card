@@ -1,0 +1,605 @@
+Snowflake Core Study Notes
+
+Cloud services layer functionality:
+	1. Authentication
+	2. Infrastructure management
+	3. Metadata management
+	4. Query parsing and optimization
+	5. Access control
+Architecture
+	1. Share data & multi-cluster 
+		a. Shared data: central data repo, compute clusters access the same data
+		b. Multi cluster: separates storage and compute and scale independently 
+	2. Namespace: to qualify objects like table by DB and schema.
+
+
+Database objects
+	1. Schema 
+		a. Schema object privileges
+			i. MONITOR TASK
+		b. No limit of number of schemas in a DB
+	2. 
+
+Tables 
+	1. Table functions
+		a. INFER_SCHEMA automatically discovers the structure of semi-structured data
+	2. Tags 
+		a. Max number unique tags: 50 per object
+		b. Tags applied to a table are inherited by the columns. Though column level tags can be over written
+		c. Create or replace tag <tag name> allowed_values 'sales', 'engineering'
+		d. Alter table my_table set tag business_unit = 'sales'
+		e. Select system$get_tag_allowed_values(tag contex)
+		f. Data classifications
+			i. PRIVACY_CATEGORY
+			ii. SEMANTIC_CATEGORY
+		g. Create and alter
+			i. CREATE TABLE employees (id INT, name STRING) TAG (sensitive_data = 'PPI');
+			ii. ALTER TABLE employees SET TAG sensitive_data = 'PPI';
+		h. SYSTEM$CLASSIFY stored procedure is used to automatically apply system defined tags to table columns 
+			i. CALL SYSTEM$CLASSIFY('hr.tables.empl_info', {'auto_tag': true});
+	3. Hybrid tables are the only tables that supports primary keys which make them suitable for use as transactional tables
+	4. Sequence 
+		a. When multiple users simultaneously access a sequence 
+			i. Each user receives a unique sequence value, potentially with gaps
+		b. Sequence starting with 5000 and increment by 5
+			i. CREATE SEQUENCE order_id_seq START = 5000 INCREMENT = 5;
+			
+Views 
+	1. Secure view
+		a. Change from secure view to view: UNSET SECURE
+		b. SHOW VIEWS
+			i. Will list name and metadata but the view SQL definition will be hidden
+	2. Materialized view
+		a. Cannot use JOIN (even self-join), ORDER BY, and WINDOW functions not supported when creating
+		b. DML operations (INSERT, DELETE, UPDATE, MERGE, TRUNCATE, COPY) not allowed
+		c. Supports only additive Agg functions: SUM, AVG, COUNT, MIN, MAX
+		d. Available only on enterprise and higher
+		e. Should not have it in a table that changes a lot often
+		f. Good use case is on external table
+		g. Does not update in real-time to changes
+		h. Managed by snowflake (serverless)
+		i. Account Usage view for monitoring materialized view
+			i. MATERIALIZED_VIEW_REFRESH_HISTORY
+	3. Information Schema
+		a. Metadata view of existing objects in a database
+	4. Account Usage
+		a. Mirrors information schema but 
+			i. Metadata view includes dropped objects
+		b. DELETED: a column that can be used to determine if a table has been dropped
+		c. LAST_ALTERED reflects the last structural change,
+		d. TABLE_TYPE shows the kind of object (e.g. BASE TABLE or VIEW), and
+		e. RETENTION_TIME indicates how long Time Travel data is kept
+		f. In Access History view, the DIRECT_OBJECTS_ACCESSED
+			i. Is a json array describing objects that were directly referenced in a query
+		
+	5. Max number of VIEWs allowed to be nested: 20
+
+Cloning 
+	1. When COPY GRANTS option specified
+		a. Cloned objects inherits current source privileges
+		b. But does not inherit future privileges
+	2. Cloning a table does not include load history
+	3. SELECT privilege required
+	4. Ony external named stages can be cloned. 
+	5. List of objects that can be cloned:
+		a. Database (usage required)
+		b. Schema (depends)
+		c. Table (select required)
+		d. Materialized view (depending on edition), 
+		e. Named external stage (with external storage), 
+		f. Pipe referencing external storage (with AUTO_INGEST config) - ownership required
+	6. List of objects that cant be cloned
+		a. External tables
+		b. Named Internal stage
+		c. internal stages (user stage, table stage), 
+		d. Some account-level objects (users/roles/network policies)
+	7. A shared data cannot be cloned by the consumer. It can only be queried.
+	8. Only pipes referencing external storage (s3, Azure) stages can be cloned when cloning a database or schema, and the pipe retain their configuration. The state depends on the value of AUTO_INGEST (true or false)
+	9. PERMANENT tables can be cloned as PERMANENT, TEMP, or TRANSIENT tables. While transient and temp can only be cloned as temp and transient
+	10. Can make clone of existing clones
+	11. Cloning vs replication
+		a. Cloning is within an account, replication is between two accounts
+		b. Data is not moved in cloning, data is physically moved in replication
+
+Fail over 
+	1. Replication
+		a. Types: database vs failover/replication group
+		b. Replication group vs failover group
+			i. Replication group alone provides a read-only replica which is not sufficient if primary goes down to take over prod. For disaster recovery (secondary needs to become read and write), this is achieved by setting up a failover group
+		c. All accounts can replicate databases and shares, but if you want to replicate things like users, roles, or network policies, resource monitor, warehouses, or use failover, you’ll need Business Critical Edition or higher
+		d. Secondary db is read only
+		e. List of objects that can be replicated
+			i. Schema
+			ii. Views
+			iii. Data configuration
+			iv. Code
+			v. Streams and tasks
+			vi. Others (tags, alerts, security integrations)
+		f. List of objects that cannot be replicated
+			i. Temp tables
+			ii. External tables
+			iii. Temp stages
+			iv. Files in internal/external stages
+			v. Account level objects (roles, grant, warehouse, resource monitor)
+		g. To cancel replication for primary database use
+			i. SYSTEM$DISABLE_DATABASE_REPLICATION
+		h. Setup single primary DB for replication
+			i. ALTER DATABASE ... ENABLE REPLICATION TO ACCOUNTS
+
+Retention
+	1. If a retention period is specified for a database or schema, the period is inherited by default for all objects created in the database/schema.
+	2. Storage cost are for both time travel and fail safe
+	3. To specify the retention time in a table use the command
+		a. DATA_RETENTION_TIME_IN_DAYS
+	4. Table created with name of dropped table within retention
+		a. A new version of the table is created
+	5. FAIL-SAFE
+		a. Data can only be access or restored by snowflake employees
+		b. Available for 7 days after retention period (only for permanent tables)
+		c. Fail safe and time travel require extra storage (which has additional cost)
+		d. Fail Safe is a default feature available with all snowflake edition
+	6. Temporary & Transient tables
+		a. 1 Day retention (1 day time travel)
+		b. No fail safe
+	7. Standard Tier: 1 Day retention
+		a. Enterprise and above: max is up to 90 days. Default is 1 day
+	8. Time Travel
+		a. show table history like ‘Test1‘ in mytestdb.myschema;
+		b. Query specific time must be in reference with parameters that have date and time (TIMESTAMP, OFFSET, and STATEMENT). These are used with the AT and BEFORE clauses
+			i. BEFORE can only work on STATEMENT => '<query_id>'
+	9. To 
+			
+Data Loading
+	1. Data is loaded in its natural order in snowflake
+	2. To make snowflake load the same file again into a table and not skip it, in subsequent loading set FORCE = TRUE
+	3. PUT command can only be run using CLI. Not available in snowsight
+	4. To optimize parallel load operation: 100-250 MB or larger compressed
+	5. Micro partition
+		a. Micro partition are storage blocks that contain 50-500 MB uncompressed data
+		b. Each contains metadata (min, max, count, null, count of distinct values, partition-level stats) of each column. Only min, max helps with pruning
+	6. Data loading for Continuous data loading (snowpipe) use either of the virtual warehouses 
+		a. User managed virtual warehouse
+		b. Snowflake managed service
+	7. Data loaded to table: metadata is maintained for 64 days
+	8. Task
+		a. Cron expression in a task definition supports specifying a time zone
+		b. a task can only execute a single SQL statement
+		c. Tasks can be executed using:
+			i. User-managed virtual warehouse
+			ii. Snowflake managed serverless compute
+				1) Can specify USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE to tell snowflake what size of warehouse to use
+	9. INSERT
+		a. VALUES has a limit of 16,384 rows. To bypass this for large files use COPY INTO
+		b. Valid values that can be supplied to VALUES clause: NULL and DEFAULT 
+		c. Simplest way to append data
+	10. MERGE
+		a. Conditional insert, update, or deleting match rows
+	11. Streams 
+		a. Types 
+			i. Append-Only
+			ii. Insert-Only
+			iii. Standard
+			iv. Update-Only
+		b. Metadata returned in a stream
+			i. METADATA$ISUPDATE - Boolean if action is an UPDATE
+			ii. METADATA$ROW_ID - unique id to track row over time if updated multiple times
+			iii. METADATA$ACTION - show whether change is INSERT or DELETE
+		c. Supported objects
+			i. Standard tables, including shared ones
+			ii. Views, including secure views
+			iii. External tables
+			iv. Event tables
+			v. Iceberg tables
+			vi. Dynamic tables
+			vii. Directory tables
+		d. Offset
+			i.  Is the pointer at which the last stream was read from. It tells snowflake when a DML operation has occurred, so latest changes can be read by the stream and the pointer is updated
+			
+	12. Unloading data
+		a. Supported data types: CSV, JSON, Parquet
+		b. To have data loaded as one file, set SINGLE = TRUE. Its slower b/c no parallelism, only single thread used
+		c. Can unload directly to s3 without using the stage object by supplying integration and bucket url
+		d. Number of partition of data unloaded depends on size of warehouse
+		e. By default unloads to csv with GZIP compression. Unload to another format i.e JSON/Parquet, use file format
+		f. Will be 16 MB for each file by default
+		g. Use MAX_FILE_SIZE to control the upper limit of files generated
+	13. Supported file types for loading: CSV, JSON, AVRO, ORC, PARQUET, XML
+	14. SNOWPIPE
+		a. Automatically detect new files in a stage: AUTO_INGEST = TRUE
+			i. If FALSE, files must be manually ingested using REST API
+		b. Snowpipe load history is stored in metadata for 14 days
+		c. Authentication: JWT tokens
+		d. To optimize for cost and performance, recommends staging data files at the location Snowpipe monitors at 1 file per minute (at least each file is 100-250mb compressed). 
+			i. If file are small, batch them till they reach the size
+		e. Optional parameter
+			i. ERROR_INTEGRATION
+			ii. AWS_SNS_TOPIC
+			iii. INTEGRATION
+	15. Semi-structured data
+	16. GET
+		a. PARALLEL: 
+			i. To improve performance when downloading large files
+	17. ON_ERROR
+		a. SKIP_FILE (_num, _num%)
+		b. CONTINUE
+		c. ABORT_STATEMENT
+	18. COPY INTO
+		a. When stage and copy into statement both define file format: copy into file format take precedence
+	19. Data loading is I/O operation, so change in virtual warehouse size does not impact the speed. Recommended to use xsmall
+	20. FILE FORMAT
+		a. Parameter specific to JSON
+			i. ALLOW DUPLICATE
+		b. In COPY INTO, have to specify like this: \
+			i. FILE_FORMAT = (FORMAT_NAME = my_file_format_name)
+	21. Snowsight 
+		a. Max number of files 250 to upload at a time.
+		b. Max size of file that can be uploaded 250MB
+	22. Unstructured data
+		a. File functions like GET_STAGE_LOCATION and  BUILD_STAGE_FILE_URL are essential for retrieving paths or URL that point to unstructured files.
+		b. Functions to create the URL for stage files whose output can be supplied to a GET request for REST API
+			i. BUILD_SCOPED_FILE_URL
+			ii. BUIL_STAGE_FILE_URL
+	23. Data Types
+		a. GEOGRAPHY: for loading GeoJSON containing longitude and latitude data
+		
+
+Snowflake
+	1. Tier
+		a. All except Standard have time travel/retention of 90 days
+		b. Virtual Private Snowflake (VPS) does not have access to Data Marketplace
+	2. Cloud
+	3. Releases
+		a. Weekly schedule
+	4. Authentication 
+		a. Push notification on Duo mobile app
+		b. Phone call
+	5. Account
+		a. Account identifier: uniquely identifies specific snowflake account
+		b. <orgname>-<account_name>
+	6. Purchase plans
+		a. On-demand
+		b. Pre-Purchased Capacity
+	7. Create an account (even by GLOBALORGADMIN)
+		a. CREATE ACCOUNT
+		b. Check what organization the account belongs to
+			i. CURRENT_ORGANIZATION_NAME()
+	8. Session
+		a. To check if role is defined in current session
+			i. IS_ROLE_IN_SESSION()
+	
+Stages
+	1. Automatically created
+		a. Table stage
+		b. User stage
+		c. Symbols for referencing different stages
+			a. @ for named stage (internal/external)
+			b. @~ for user stage
+			c. @% for tale stage
+	2. Command to download data from stage: GET
+	3. Command to refresh metadata of internal stage
+		a. ALTER STAGE ... REFRESH
+	4. Directory table
+		a. Adds metadata fields like: FILE_URL, RELATIVE_PATH, MD5, ETAG
+	5. URL
+		a. SCOPED_URL
+			i. Provide highly restricted, user-specific access. Only user who generated can access ref file
+			ii. Ideal for fine grained access control to specific file
+			iii. Short lived 24 hrs
+			iv. Generated by BUILD_SCOPED_FILE_URL
+		b. PRE-SIGNED_URL
+			i. Public with access to specific file
+			ii. For cases where file needs to be accessed by tools, app, users not authenticated inside snowflake
+			iii. Temporary with set expiration time. Defaults to 24hr
+			iv. Generated with GET_PRESIGNED_URL
+	6. Privilege required for a role to execute COPY INTO from a stage is READ
+	7. REST API endpoint to retrieve a file from a stage
+		a. /api/files/
+Query 
+	1. Cache
+		a. The 24 hr retention of persisted query is reset each time the query is reused up to 31 days then purged. A new query triggers new generated result that is persisted
+		b. Disable result cache manually: ALTER SESSION SET USE_CACHED_RESULT = FALSE;
+		c. To determine if query used warehouse cache
+			i.  PERCENTAGE_SCANNED_FROM_CACHE from SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
+		d. Must be same query, data (not changed)
+		e. It is global, so accessible to users with matching role and permission
+		f. Non-deterministic func like CURRENT_TIMESTAMP() and RANDOM() are not eligible
+	2. Profiler
+		a. Can be viewed even before query is complete
+		b. To check if a query used warehouse cache
+			i. Percentage scanned from cache
+	3. Optimization
+		a. Search Optimization Service (SOS) uses a special metadata structure called "search access path" to efficiently identify and scan micro partition relevant to query for point lookup queries like (i.e query "where id = 'xyz' ")
+			i. Metadata structure of search access path incurs storage cost
+			ii. Compute costs are incurred in building and updating the access path
+			iii. Available from enterprise
+			iv. Added to a table
+			v. ALTER TABLE my_table ADD SEARCH OPTIMIZATION
+		b. Query Acceleration Service (QAS): enterprise edition
+			i. Feature for offloading compute-intensive portions of eligible queries to specialized server resources
+			ii. Use parameter SYSTEM$ESTIMATE_QUERY_ACCELERATION to check if query qualifies. Uses query_id
+			iii. Returns 
+				1) Status (eligible/ineligible)
+				2) estimatedQueryTime object
+			iv. QUERY_ACCELERATION_MAX_SCALE_FACTOR limits the maximum size of the resources QAS can use, providing a way to control potential costs.
+				1) Max number: 100, default: 8
+			v. ENABLE_QUERY_ACCELERATION = true;
+			vi. This is set at the creation of the virtual warehouse or use ALTER to add on existing 
+			vii. Suitable for:
+				1) Large table scan with selective filter
+				2) Large data loading queries that insert or copy high volume of new rows
+			viii. Setting it on warehouse
+				1) ALTER WAREHOUSE ANALYTICS_WH SET ENABLE_QUERY_ACCELERATION = TRUE;
+	4. DML operation
+		a. OVERWRITE keyword in INSERT statement is to truncate the table and repopulate it. This is an atomic operation. Good for refreshing data instead of just appending data
+	5. Approximate estimation. Built-in SQL function
+		a. Cardinality estimation (approx_count_distinct)
+		b. Similarity estimation (approximate_jacard_index)
+		c. Frequency estimation (approx_top_k)
+		d. Percentile estimation (approx_percentile)
+	6. Cancel query
+		a. SYSTEM$CANCEL_QUERY using query ID
+	
+Virtual Warehouse 
+	1. Cluster scaling policy
+		a. In ECONOMY scaling, queries queue for 6 minutes before a new cluster is started. Supports cost efficiency 
+		b. In STANDARD scaling, snowflake prioritizes performance by quickly adding more clusters to minimize queues
+		c. Minimum snowflake tier that allows multi-cluster: Enterprise
+	2. Modes of operation
+		a. Auto-Scale
+		b. Maximized
+		c. Auto-Scale vs Maximized
+			a. Maximized 
+				i. Min = max > 1
+	3. Suspension parameters
+		a. AUTO_SUSPEND
+		b. AUTO_RESUME = TRUE
+	4. To check what warehouses are running, suspended, or resizing
+		a. Use SHOW WAREHOUSES;
+	5. Parameters to control queue and number of concurrent queries
+		a. MAX_CONCURRENCY_LEVEL: number of query handled by cluster at a time
+		b. STATEMENT_QUEUED_TIMEOUT_IN_SECONDS: how long query sits in queue before canceling
+	6. Multi cluster available in: Enterprise & higher
+	7. Credits are charge in per sec use with minimum charge of 1 minute
+	8. After suspend is run, warehouses waiting to finish completing queries are in mode called Quiesce
+	9. Types of compute resources that incur costs
+		a. Virtual warehouse
+		b. Serverless compute
+		c. Cloud services compute
+	10. Warehouse activity chart
+		a. In snowsight you can view up to 2 weeks activity of a warehouse
+	
+Billing 
+	1. Minimum billing charge time is 1 minute for virtual warehouse
+	2. Snowflake credit depends on infrastructure and service-related variables, including the cloud provider, region, and account edition.
+	3. Features billed by credit
+		a. Virtual warehouse
+		b. Cloud service
+		c. Serverless features
+	4. Features billed at flat rate per TB
+		a. Data storage (per month)
+		b. Data transfer 
+	5. Serverless warehouse billing
+		a. Per-second at feature-specific rates
+
+Table Clustering
+	1. Recommended ordering in muti-column cluster key: order columns lowest cardinality to highest
+	2. Cluster depth:
+		a. Depth of overlapping micro-partitions (value 1 or greater)
+		b. Used to determine if a table will benefit from defining cluster key. It tells you how many micro partitions snowflake has to scan for a particular column to access a row range
+		c. Function for getting detailed JSON report of clustering depth and overlap SYSTEM$CLUSTERING_INFORMATION
+		d. Low value means better clustered
+		e. As DML is performed, value can increase
+	3. Recommends not more than 3-4 clustering keys
+Tri-secret
+	1. Customer managed key + snowflake maintained key
+	2. Available in Business critical & higher
+	3. Enables you to Bring your Own Key (BYOK)
+	4. Key management services are AWS, Azure, and GCP
+	5. 
+
+Resource Monitor
+	1. Notifications 
+		a. Email
+		b. Web UI
+Security
+	1. Encryption
+		a. Periodic rekeying ensures all customer data are always encrypted
+		b. Encryption keys
+			i. Root key - encrypts account master keys
+			ii. Account master key - encrypt table master key
+			iii. Table master key - encrypts file keys which is used to protect the actual data
+		c. Root key that encrypts all other lower keys uses
+			i. Cloud-hosted Hardware Security Module (HSM)
+	2. Masking 
+		a. When row level and column level security policy are applied on the same table, row access policy is applied first to filter rows before column masking
+		b. When an unauthorized role queries a column with dynamic data masking policy
+			i. Unauthorized roles see masked column data depending on how the masking was done
+		c. Returned data type must match the data type of the first input column
+		d. Join performed on a masked column via hashing, will return no result because the masking applies before the query executes
+	3. When a role lacks access to a securable object, access to that object is denied by default.
+	4. Access 
+		a. RBAC: Privileges --> Role --> Users
+		b. UBAC - privileges are granted directly to users. USE_SECONDARY_ROLES must be ALL
+			i. If USE_SECONDARY_ROLES = NONE, UBAC is ignored RBAC is used
+		c. To give access to tables in a schema to a role which will be assigned to users
+			i. GRANT USAGE first on the schema
+			ii. GRANT SELECT ON FUTURE TABLES IN SCHEMA sales.myschema TO ROLE analyst
+		d. DAC: Discretionary Access Control
+			i. Each object has owner that grant access to that object
+		e. Global privileges
+			i. MANAGE GRANTS
+	5. Auth
+		a. MFA
+			i. Options
+				1) Receive phone call
+				2) Receive a push notification
+			ii. Temporarily disable MFA using ALTER USER:
+				1) SET MINS_TO_BYPASS_MFA = 30
+				2) SET DISABLE_MFA = TRUE
+		b. Federated auth method
+			i. SAML2 security integration (connect with external IdP)
+		c. snowSQL parameter for MFA 
+			i. --mfa-passcode
+	6. Roles 
+		a. ACCOUNTADMIN - focus on account-level privileges
+		b. SYSADMIN - manages objects in a single account
+		c. SECURITYADMIN - security within an account
+		d. ORGADMIN/GLOBALORGADMIN - manages at org level
+			i. Needed to enable account/database replication across accounts. After which other roles like ACCOUNTADMIN configures and manage it
+		e. CREATE TABLE, CREATE VIEW can not be executed by secondary role even if it has the grant. Must be switched to primary to use commands 
+	7. Network 
+		a. Network Rules (value_list) --> Network Policy (allow or block lists)
+		b. Function to obtain snowflake hostname IP address and ports for private connectivity
+			a. SYSTEM$ALLOWLIST_PRIVATELINK()
+		c. Levels where network policies can be applied
+			a. User
+			b. Account
+			c. Security integration (federated auths)
+		d. Intermediary b/w snowflake and remote service
+			a. Proxy service (manages auth, subscription, billing etc)
+Data Type
+	1. Avro - RPC framework originally developed for Hadoop
+
+Snowpark
+	1. Supported languages: python, Java, and scala
+
+UDF, UDTF, StoredProcedure
+	1. UDF
+		a. A secure UDF disables certain optimizations to avoid leaking sensitive data
+		b. JavaScript, Java, python, and scala. Can also  use snowpark API. Runtime version and handler must be specified
+			i. JavaScript can call themselves recursively 
+		c. Secure UDF
+			i. Snowflake conceals logic, imports, handler name, handler code, packages
+			ii. CREATE OR REPLACE SECURE FUNCTION get_total(price NUMBER)
+			iii. To check if UDF is secure UDF
+				1) Use SHOW FUNCTIONS, and check the IS_SECURE column
+		d. Parameter for storing Java UDF compiled jar
+			i. target_path
+		e. Languages that can be uploaded via stage for UDF
+			i. Java, Python, Scala
+		f. Languages that can be written in-line
+			i. Java, Python, JavaScript, Scala, SQL
+	2. Stored Procedure
+		a. Error in SQL scripting
+			i. STATEMENT ERROR - when DDL/DML statement fails e.g. dropping a table
+			ii. EXPRESSION_ERROR - when error in expression (e.g. casting or arithmetic error)
+			iii. OTHER - fallback on uncaught exceptions
+		b. Do not typically return value, this is optional, mostly for doing actions (updating, deleting, etc)
+		c. Can be created with:
+			i. Javascript
+			ii. SQL 
+			iii. Snowpark (python, Java, Scala)
+		d. Callers right or owners right
+	3. External function (defined as udf)
+		a. Use proxy service in between (extra security, subscription model)
+		b. No query optimization, on can be scaler, cannot be shared, less secure
+	4. JDBC and ODBC allow Java and C++ applications to connect to snowflake and run sql commands
+	5. Snowflake scripting block SQL
+		a. Variable referred to with colon :my_var
+		b. In session variable referred to with $my_var
+
+Data structures
+	1. VARIANT has a max size of 16 MB of uncompressed data. So each VARIANT value can contain a full object or document not exceeding 16mb or flatten the data
+		a. Use GET to extract value from VARIANT column
+			i. Metadata = {"name": "John", "age": 30}
+			ii. SELECT GET(metadata, 'name')::STRING AS first_name FROM my_table;
+
+Data Sharing
+	1. Objects that can be shared:
+		a. Databases
+		b. Tables
+		c. Dynamic tables 
+		d. External tables
+		e. Apache iceberg tables
+		f. Secure views
+		g. Secure materialized views
+		h. UDF (secure and unsecure)
+	2. Only 1 database can be created from a share
+	3. Made possible by the global services layer
+	4. Only secure views and UDFs can be shared
+	5. VPS does not support data sharing
+	6. Any new object created in a shared database is not automatically added to the share. 
+		a. You have to add the grant to the share to make it accessible
+	7. Cant share data with an account in another region
+		a. To do this, provider must replicate the data to an account in that region before creating the share
+	8. By default only the ACCOUNTADMIN can create a share. Though it can be delegated to other roles
+	9. In the consumer account a role requires the IMPORT privilege granted to create a database from a share
+	10. For consumers that do not have a snowflake account
+		a. A reader account can be created for them by the provider
+		b. Charges related to the reader account is billed to the provider
+		c. The account is read only account and other data other than that of provider cannot be added to it
+	11. Data consumers
+		a. Benefits
+			i. Instant access to live data
+			ii. No need for ETL
+	12. If provider drops share, database in consumer becomes inaccessible 
+
+
+Marketplace
+	1. Personalized listing: invite only (sensitive data), users must request access to be manually approved
+	2. Standard listing: Just click request and only accept service agreement
+	3. Data Exchange is a private market place where a provider has listings for a select group of customers
+		a. Have to contact snowflake to establish this
+		b. The Data Exchange Administrator is responsible for configuring the exchange and managing members
+
+Sampling 
+	1. There are two modes
+		a. Fraction-based sampling
+			i. SYSTEM
+				1) With SEED or REPEATABLE allows for reproducibility 
+				2) Example SAMPLE SYSTEM (10) SEED (42)
+			ii. BERNOULLI or ROW
+				1) SAMPLE BERNOULLI (10)
+				2) Snowflake only supports applying SAMPLE to the result of a join if BERNOULLI (or ROW) sampling is used
+				3) Default sample type. i.e., SAMPLE (10); use BERNOULLI
+		b. Fixed-size sampling
+			i. SAMPLE (10 ROWS)
+			ii. Does not support SEED or REPEATABLE
+Latency
+	1. Information schema: 
+		a. Instant
+		b. 7 days to 6 month retention 
+	2. Account Usage: 45mins to 3hrs  latency
+		a. 1 year retention
+	3. Query History: 45 mins
+		a. Accountadmin has permission to see it
+
+Streamlit 
+	1. Max data exchange: 32MB
+	2. Uses privileges of role that owns it
+	3. A warehouse is required to execute it
+
+SNOWSQL
+	1. -d / --dbname for the database
+	2. -w / --warehouse for the virtual warehouse
+	3. -r / --rolename for the role
+	4. -u user
+	5. -s / --schemaname
+	6. Parameters used to execute SQL query
+		a. --query
+		b. --filename
+	7. Default path: ~/.snowsql/config
+
+SnowCD
+	1. Port used for testing HTTP communication: 443
+
+Serverless features
+	1. Here's a full list of what serverless features:
+		○ Clustered Tables
+		○ Copy Files
+		○ Data Quality Monitoringls
+		○ Hybrid Tables Requests
+		○ Logging
+		○ Materialized Views maintenance
+		○ Open Catalog
+		○ Organization Usage
+		○ Query Acceleration
+		○ Replication
+		○ Search Optimization Service
+		○ Sensitive Data Classification (allows columns to be marked as having sensitive or PII data)
+		○ Serverless Alerts
+		○ Serverless Tasks
+		○ Serverless Tasks Flex
+		○ Snowpipe
+		○ Snowpipe Streaming
+		○ Trust Center

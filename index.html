@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Flashcard Quiz App</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f5f5f5;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+    }
+    header {
+      background-color: #4caf50;
+      color: white;
+      padding: 1rem;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    #editor {
+      width: 80%;
+      margin: 1rem 0;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+    }
+    #qa-input {
+      height: 200px;
+      padding: 0.5rem;
+      resize: vertical;
+    }
+    button {
+      margin-top: 0.5rem;
+      padding: 0.5rem 1rem;
+      border: none;
+      background-color: #4caf50;
+      color: white;
+      font-size: 1rem;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    button:hover {
+      background-color: #45a049;
+    }
+    #flashcard-container {
+      margin-top: 1rem;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+    }
+    .card {
+      width: 300px;
+      height: 200px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background-color: white;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+      cursor: pointer;
+      padding: 1rem;
+      text-align: center;
+      font-size: 1.2rem;
+    }
+    #answer-actions {
+      margin-top: 1rem;
+      display: none;
+    }
+    #score-display {
+      margin-top: 1rem;
+      display: none;
+      font-size: 1.2rem;
+      color: #333;
+    }
+
+    /* Progress bar styles */
+    #progress-text {
+      margin-top: 1rem;
+      font-size: 1rem;
+    }
+    #progress-bar {
+      width: 80%;
+      height: 10px;
+      background-color: #ddd;
+      border-radius: 5px;
+      margin-top: 0.3rem;
+      overflow: hidden;
+      display: none;
+    }
+    #progress-bar-fill {
+      height: 100%;
+      width: 0%;
+      background-color: #4caf50;
+      transition: width 0.3s ease;
+    }
+
+    /* Navigation button styles */
+    #nav-buttons {
+      margin-top: 0.5rem;
+      display: none;
+      width: 120px;
+      justify-content: space-between;
+    }
+    .nav-btn {
+      background-color: #4caf50;
+      color: white;
+      border: none;
+      padding: 0.5rem;
+      font-size: 1.5rem;
+      border-radius: 50%;
+      width: 45px;
+      height: 45px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+    .nav-btn:disabled {
+      background-color: #ccc;
+      cursor: default;
+    }
+
+    /* Finish button styles */
+    #finish-btn {
+      margin-top: 0.5rem;
+      padding: 0.5rem 1rem;
+      border: none;
+      background-color: #f44336; /* red to differentiate finish action */
+      color: white;
+      font-size: 1rem;
+      border-radius: 4px;
+      cursor: pointer;
+      display: none; /* hidden until quiz starts */
+    }
+    #finish-btn:hover {
+      background-color: #d32f2f;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Flashcard Quiz Application</h1>
+  </header>
+  <div id="editor">
+    <p>Enter your question and answer pairs, one per line, separated by a pipe (<code>|</code>).</p>
+    <textarea id="qa-input" placeholder="Example: What is the capital of France?|Paris\nWhat is 2+2?|4"></textarea>
+    <button id="start-btn">Start Quiz</button>
+  </div>
+  <div id="flashcard-container">
+    <!-- Progress text and bar shown during the quiz -->
+    <div id="progress-text"></div>
+    <div id="progress-bar">
+      <div id="progress-bar-fill"></div>
+    </div>
+
+    <div id="card" class="card"></div>
+    <div id="answer-actions">
+      <button id="correct-btn">I got it right</button>
+      <button id="incorrect-btn">I got it wrong</button>
+    </div>
+    <!-- Navigation arrows for moving between questions -->
+    <div id="nav-buttons">
+      <button id="prev-btn" class="nav-btn">&#8592;</button>
+      <button id="next-btn" class="nav-btn">&#8594;</button>
+    </div>
+    <!-- Finish quiz button -->
+    <button id="finish-btn">Finish Quiz</button>
+    <div id="score-display"></div>
+  </div>
+  <script>
+    // Store the flashcards and state
+    let flashcards = [];
+    let currentIndex = 0;
+    let showAnswer = false;
+    let correctCount = 0;
+
+    // Get DOM elements
+    const qaInput = document.getElementById('qa-input');
+    const startBtn = document.getElementById('start-btn');
+    const flashcardContainer = document.getElementById('flashcard-container');
+    const cardEl = document.getElementById('card');
+    const answerActions = document.getElementById('answer-actions');
+    const correctBtn = document.getElementById('correct-btn');
+    const incorrectBtn = document.getElementById('incorrect-btn');
+    const scoreDisplay = document.getElementById('score-display');
+
+    // Elements for progress display
+    const progressText = document.getElementById('progress-text');
+    const progressBar = document.getElementById('progress-bar');
+    const progressBarFill = document.getElementById('progress-bar-fill');
+
+    // Navigation buttons
+    const prevBtn = document.getElementById('prev-btn');
+    const nextBtn = document.getElementById('next-btn');
+
+    // Finish quiz button
+    const finishBtn = document.getElementById('finish-btn');
+
+    // Track the state of each card: status can be 'unanswered', 'correct', 'incorrect', 'skipped'
+    // and whether the answer has been revealed (revealed: boolean).
+    let cardStates = [];
+
+    // Attach navigation button handlers
+    prevBtn.addEventListener('click', () => {
+      goToPrev();
+    });
+    nextBtn.addEventListener('click', () => {
+      goToNext();
+    });
+
+    // Finish quiz early handler
+    finishBtn.addEventListener('click', () => {
+      finishQuizEarly();
+    });
+
+    // Parse input into flashcards
+    function parseInput() {
+      const lines = qaInput.value.split('\n').filter(line => line.trim() !== '');
+      const cards = [];
+      for (const line of lines) {
+        const parts = line.split('|');
+        if (parts.length >= 2) {
+          const question = parts[0].trim();
+          const answer = parts.slice(1).join('|').trim();
+          cards.push({ question, answer });
+        }
+      }
+      return cards;
+    }
+
+    // Start the quiz
+    startBtn.addEventListener('click', () => {
+      flashcards = parseInput();
+      if (flashcards.length === 0) {
+        alert('Please enter at least one question and answer pair.');
+        return;
+      }
+      currentIndex = 0;
+      correctCount = 0;
+      showAnswer = false;
+      document.getElementById('editor').style.display = 'none';
+      flashcardContainer.style.display = 'flex';
+      answerActions.style.display = 'none';
+      scoreDisplay.style.display = 'none';
+      cardEl.style.display = 'flex';
+      // Initialize card state tracking
+      cardStates = flashcards.map(() => ({ status: 'unanswered', revealed: false }));
+      // Show and reset the progress bar at the start of the quiz
+      progressBar.style.display = 'block';
+      // Show navigation buttons
+      document.getElementById('nav-buttons').style.display = 'flex';
+      // Show finish button when quiz starts
+      finishBtn.style.display = 'block';
+      // Disable previous button at the start
+      prevBtn.disabled = true;
+      // Enable next button (only disabled at final card later)
+      nextBtn.disabled = false;
+      updateProgress();
+      renderCard();
+    });
+
+    // Render the current card
+    function renderCard() {
+      const card = flashcards[currentIndex];
+      if (!showAnswer) {
+        cardEl.textContent = card.question;
+      } else {
+        cardEl.textContent = card.answer;
+      }
+    }
+
+    // Flip the card to show question/answer or back again.
+    cardEl.addEventListener('click', () => {
+      if (currentIndex >= flashcards.length) {
+        return;
+      }
+      // Toggle between showing question and answer
+      if (showAnswer) {
+        // Currently showing the answer; flip back to question
+        showAnswer = false;
+        renderCard();
+        // Do not hide answer actions; allow user to still mark correct/incorrect
+      } else {
+        // Currently showing the question; reveal the answer
+        showAnswer = true;
+        // Mark this card as revealed
+        if (cardStates[currentIndex]) {
+          cardStates[currentIndex].revealed = true;
+        }
+        renderCard();
+        // Show answer actions when revealing answer
+        answerActions.style.display = 'flex';
+      }
+    });
+
+    // Handle correct/incorrect buttons
+    correctBtn.addEventListener('click', () => {
+      // Mark current question as answered correctly
+      if (cardStates[currentIndex]) {
+        cardStates[currentIndex].status = 'correct';
+      }
+      goToNext();
+    });
+    incorrectBtn.addEventListener('click', () => {
+      // Mark current question as answered incorrectly
+      if (cardStates[currentIndex]) {
+        cardStates[currentIndex].status = 'incorrect';
+      }
+      goToNext();
+    });
+
+    /**
+     * Mark current question as skipped or incorrect if unanswered.
+     * A question is considered skipped if the answer has not been revealed.
+     * If the answer has been revealed but no selection has been made, the question
+     * is treated as answered incorrectly.
+     */
+    function finalizeCurrentIfUnanswered() {
+      const state = cardStates[currentIndex];
+      if (state && state.status === 'unanswered') {
+        if (!state.revealed) {
+          state.status = 'skipped';
+        } else {
+          state.status = 'incorrect';
+        }
+      }
+    }
+
+    /**
+     * Finalize the entire quiz early. Marks the current question according to the
+     * standard finalize logic, then marks all remaining unanswered questions as
+     * skipped so they are excluded from the score. Finally, shows the score.
+     */
+    function finishQuizEarly() {
+      // Finalize the current question first
+      finalizeCurrentIfUnanswered();
+      // Mark any questions not yet visited as skipped
+      cardStates.forEach((state, index) => {
+        if (state.status === 'unanswered') {
+          state.status = 'skipped';
+        }
+      });
+      // Hide answer actions
+      answerActions.style.display = 'none';
+      // Proceed to show the score
+      showScore();
+    }
+
+    /**
+     * Navigate to the next question. Finalizes current state if unanswered
+     * and updates navigation button states and progress.
+     */
+    function goToNext() {
+      // Finalize current question if no answer was selected
+      finalizeCurrentIfUnanswered();
+
+      // Hide answer actions and reset showAnswer
+      answerActions.style.display = 'none';
+      showAnswer = false;
+
+      currentIndex++;
+      if (currentIndex < flashcards.length) {
+        renderCard();
+        updateProgress();
+        // Enable previous button once we've moved forward
+        prevBtn.disabled = (currentIndex === 0);
+      } else {
+        showScore();
+      }
+    }
+
+    /**
+     * Navigate to the previous question without changing the current question's state.
+     */
+    function goToPrev() {
+      if (currentIndex <= 0) {
+        return;
+      }
+      currentIndex--;
+      // Reset view to question side when navigating backwards
+      showAnswer = false;
+      renderCard();
+      updateProgress();
+      // Hide answer actions until the user reveals the answer again or if this card was previously answered
+      const state = cardStates[currentIndex];
+      if (state && (state.status === 'correct' || state.status === 'incorrect')) {
+        // If previously answered, allow the user to change their answer by revealing again
+        answerActions.style.display = 'none';
+      } else if (state && state.revealed) {
+        // If revealed but unanswered, hide actions; user must re-reveal answer to answer
+        answerActions.style.display = 'none';
+      } else {
+        answerActions.style.display = 'none';
+      }
+      // Update navigation buttons
+      prevBtn.disabled = (currentIndex === 0);
+    }
+
+    function showScore() {
+      // Hide the card and display the final score
+      cardEl.style.display = 'none';
+      // Hide navigation buttons
+      document.getElementById('nav-buttons').style.display = 'none';
+      // Hide finish button
+      finishBtn.style.display = 'none';
+      // Compute results based on cardStates
+      const total = flashcards.length;
+      let correctTotal = 0;
+      let consideredTotal = 0;
+      let skippedTotal = 0;
+      cardStates.forEach(state => {
+        if (state.status === 'correct') {
+          correctTotal++;
+          consideredTotal++;
+        } else if (state.status === 'incorrect') {
+          consideredTotal++;
+        } else if (state.status === 'skipped') {
+          skippedTotal++;
+        }
+      });
+      const percentage = consideredTotal === 0 ? 0 : Math.round((correctTotal / consideredTotal) * 100);
+      scoreDisplay.style.display = 'block';
+      // Build final message
+      let message = `Quiz Complete!<br/>You answered ${correctTotal} out of ${consideredTotal} considered questions correctly. (${percentage}% correct)`;
+      if (skippedTotal > 0) {
+        message += `<br/>You skipped ${skippedTotal} question${skippedTotal > 1 ? 's' : ''} which ${skippedTotal === 1 ? 'was' : 'were'} not factored into the result.`;
+      }
+      message += `<br/><br/><button id="restart-btn">Restart Quiz</button>`;
+      scoreDisplay.innerHTML = message;
+      // Attach event handler to restart button
+      document.getElementById('restart-btn').addEventListener('click', restartQuiz);
+      // Hide progress bar when quiz is over
+      progressBar.style.display = 'none';
+      progressBarFill.style.width = '0%';
+      progressText.textContent = '';
+    }
+
+    // Restart the quiz by returning to the editor
+    function restartQuiz() {
+      // Hide score display and flashcard container
+      scoreDisplay.style.display = 'none';
+      flashcardContainer.style.display = 'none';
+      // Show the editor with the original questions intact
+      document.getElementById('editor').style.display = 'block';
+      // Reset current index and counters in case the user starts a new quiz
+      currentIndex = 0;
+      correctCount = 0;
+      showAnswer = false;
+      // Show card element again
+      cardEl.style.display = 'flex';
+
+      // Reset progress bar and text
+      progressBar.style.display = 'none';
+      progressBarFill.style.width = '0%';
+      progressText.textContent = '';
+
+      // Hide navigation buttons until the user starts a new quiz
+      document.getElementById('nav-buttons').style.display = 'none';
+
+      // Hide finish button until next quiz start
+      finishBtn.style.display = 'none';
+
+      // Reset cardStates
+      cardStates = [];
+    }
+
+    /**
+     * Update the textual and bar-style progress indicators.
+     * Shows the current question number and adjusts the progress bar width.
+     */
+    function updateProgress() {
+      const current = currentIndex + 1;
+      const total = flashcards.length;
+      progressText.textContent = `Question ${current} of ${total}`;
+      const percentage = (current / total) * 100;
+      progressBarFill.style.width = percentage + '%';
+    }
+  </script>
+</body>
+</html>
