@@ -175,6 +175,19 @@
     <div id="score-display"></div>
   </div>
   <script>
+    // Preloaded questions Markdown content inserted at build time. If this
+    // variable is defined and non-empty, it will be used instead of
+    // attempting to fetch questions.md via fetch(). The content is parsed
+    // into question|answer pairs on page load.
+    const PRELOADED_QUESTIONS_MD = `What is the capital of France?
+Paris
+
+Who wrote "To Kill a Mockingbird"?
+Harper Lee
+
+What is 2+2?
+4
+`;
     // Store the flashcards and state
     let flashcards = [];
     let currentIndex = 0;
@@ -482,6 +495,72 @@
       const percentage = (current / total) * 100;
       progressBarFill.style.width = percentage + '%';
     }
+
+    /**
+     * Attempt to load a local questions.md file from the same directory as this
+     * HTML file. If it exists and is successfully fetched, parse it into
+     * question|answer pairs and populate the textarea. The file should be
+     * formatted in Markdown where each question and its answer are separated
+     * by blank lines. The first non-empty line in a block is treated as the
+     * question and the remaining lines form the answer (joined with spaces).
+     */
+    function loadQuestionsFromMarkdown() {
+      // Only attempt if the textarea is present
+      const textarea = document.getElementById('qa-input');
+      if (!textarea) return;
+      // Helper to parse Markdown content into question|answer lines
+      function parseMarkdown(md) {
+        const blocks = md.split(/\n\s*\n+/);
+        const lines = [];
+        blocks.forEach(block => {
+          const trimmed = block.trim();
+          if (trimmed) {
+            const parts = trimmed.split(/\n/).filter(l => l.trim() !== '');
+            if (parts.length > 0) {
+              const question = parts[0].trim();
+              const answer = parts.slice(1).join(' ').trim();
+              if (question && answer) {
+                lines.push(`${question}|${answer}`);
+              }
+            }
+          }
+        });
+        return lines;
+      }
+
+      // Attempt to fetch questions.md relative to this file. If it
+      // succeeds, parse and populate. Otherwise fall back to any preloaded
+      // markdown content embedded at build time.
+      const url = new URL('questions.md', window.location.href);
+      fetch(url)
+        .then(response => {
+          if (!response.ok) {
+            throw new Error('Failed to fetch questions.md');
+          }
+          return response.text();
+        })
+        .then(text => {
+          const lines = parseMarkdown(text);
+          if (lines.length > 0) {
+            textarea.value = lines.join('\n');
+          } else {
+            throw new Error('questions.md did not contain valid Q/A pairs');
+          }
+        })
+        .catch(err => {
+          // If the file does not exist or an error occurs, attempt to use preloaded content
+          if (typeof PRELOADED_QUESTIONS_MD !== 'undefined' && PRELOADED_QUESTIONS_MD.trim()) {
+            const lines = parseMarkdown(PRELOADED_QUESTIONS_MD);
+            if (lines.length > 0) {
+              textarea.value = lines.join('\n');
+            }
+          }
+          console.warn(err);
+        });
+    }
+
+    // Load questions from questions.md once the page content is ready
+    document.addEventListener('DOMContentLoaded', loadQuestionsFromMarkdown);
   </script>
 </body>
 </html>
