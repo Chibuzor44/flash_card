@@ -235,7 +235,8 @@ What is 2+2?
 
     // Parse input into flashcards
     function parseInput() {
-      const lines = qaInput.value.split('\n').filter(line => line.trim() !== '');
+      // Split on both LF and CRLF to handle different line endings
+      const lines = qaInput.value.split(/\r?\n/).filter(line => line.trim() !== '');
       const cards = [];
       for (const line of lines) {
         const parts = line.split('|');
