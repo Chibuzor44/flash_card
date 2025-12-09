@@ -543,7 +543,8 @@ What is 2+2?
         .then(text => {
           const lines = parseMarkdown(text);
           if (lines.length > 0) {
-            textarea.value = lines.join('\n');
+            // Join with a newline between each pair and add a trailing newline to ensure parsing splits correctly
+            textarea.value = lines.join('\n') + '\n';
           } else {
             throw new Error('questions.md did not contain valid Q/A pairs');
           }
@@ -553,7 +554,7 @@ What is 2+2?
           if (typeof PRELOADED_QUESTIONS_MD !== 'undefined' && PRELOADED_QUESTIONS_MD.trim()) {
             const lines = parseMarkdown(PRELOADED_QUESTIONS_MD);
             if (lines.length > 0) {
-              textarea.value = lines.join('\n');
+              textarea.value = lines.join('\n') + '\n';
             }
           }
           console.warn(err);
