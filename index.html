@@ -177,7 +177,7 @@
   <script>
     // Preloaded questions Markdown content inserted at build time. If this
     // variable is defined and non-empty, it will be used instead of
-    // attempting to fetch questions.md via fetch(). The content is parsed
+    // attempting to fetch questions.txt via fetch(). The content is parsed
     // into question|answer pairs on page load.
     const PRELOADED_QUESTIONS_MD = `What is the capital of France?
 Paris
@@ -498,7 +498,7 @@ What is 2+2?
     }
 
     /**
-     * Attempt to load a local questions.md file from the same directory as this
+     * Attempt to load a local questions.txt file from the same directory as this
      * HTML file. If it exists and is successfully fetched, parse it into
      * question|answer pairs and populate the textarea. The file should be
      * formatted in Markdown where each question and its answer are separated
@@ -529,14 +529,14 @@ What is 2+2?
         return lines;
       }
 
-      // Attempt to fetch questions.md relative to this file. If it
+      // Attempt to fetch questions.txt relative to this file. If it
       // succeeds, parse and populate. Otherwise fall back to any preloaded
       // markdown content embedded at build time.
-      const url = new URL('questions.md', window.location.href);
+      const url = new URL('questions.txt', window.location.href);
       fetch(url)
         .then(response => {
           if (!response.ok) {
-            throw new Error('Failed to fetch questions.md');
+            throw new Error('Failed to fetch questions.txt');
           }
           return response.text();
         })
@@ -546,7 +546,7 @@ What is 2+2?
             // Join with a newline between each pair and add a trailing newline to ensure parsing splits correctly
             textarea.value = lines.join('\n') + '\n';
           } else {
-            throw new Error('questions.md did not contain valid Q/A pairs');
+            throw new Error('questions.txt did not contain valid Q/A pairs');
           }
         })
         .catch(err => {
@@ -561,7 +561,7 @@ What is 2+2?
         });
     }
 
-    // Load questions from questions.md once the page content is ready
+    // Load questions from questions.txt once the page content is ready
     document.addEventListener('DOMContentLoaded', loadQuestionsFromMarkdown);
   </script>
 </body>
